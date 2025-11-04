@@ -13,6 +13,7 @@ options = ZipVoiceOptions(
     fm_decoder_int8_path="./model_heb/fm_decoder_int8.onnx",
     model_json_path="./model_heb/model.json",
     tokens_path="./model_heb/tokens.txt",
+    onnx_vocoder_path='vocos-mel-24khz.onnx'
 )
 
 zipvoice = ZipVoice(options)

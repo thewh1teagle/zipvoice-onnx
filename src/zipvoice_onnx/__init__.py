@@ -27,6 +27,7 @@ class ZipVoiceOptions:
     model_json_path: str = ""
     tokens_path: str = ""
     vocos_model_path: Optional[str] = None
+    onnx_vocoder_path: Optional[str] = None
 
 
 class ZipVoice:
@@ -78,7 +79,9 @@ class ZipVoice:
         self.model = OnnxModel(str(text_encoder_path), str(fm_decoder_path), num_thread=num_thread)
         
         # Initialize vocoder and feature extractor
-        self.vocoder = get_vocoder(options.vocos_model_path)
+        if not options.onnx_vocoder_path:
+            raise ValueError("onnx_vocoder_path must be provided")
+        self.vocoder = get_vocoder(options.onnx_vocoder_path)
         self.vocoder.eval()
         
         if self.model_config["feature"]["type"] == "vocos":

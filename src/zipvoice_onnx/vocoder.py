@@ -1,10 +1,6 @@
-from typing import Optional
-
-import numpy as np
+import onnxruntime as ort
 import torch
 import torchaudio
-from torch import nn
-from vocos import Vocos
 
 
 class VocosFbank:
@@ -76,18 +72,17 @@ class VocosFbank:
         return logmel
 
 
-def get_vocoder(vocos_local_path: Optional[str] = None):
-    if vocos_local_path:
-        vocoder = Vocos.from_hparams(f"{vocos_local_path}/config.yaml")
-        state_dict = torch.load(
-            f"{vocos_local_path}/pytorch_model.bin",
-            weights_only=True,
-            map_location="cpu",
-        )
-        vocoder.load_state_dict(state_dict)
-    else:
-        vocoder = Vocos.from_pretrained("charactr/vocos-mel-24khz")
-    return vocoder
+def get_vocoder(onnx_model_path: str):
+    """
+    Get an ONNX vocoder instance.
+    
+    Args:
+        onnx_model_path: Path to ONNX vocoder model
+    
+    Returns:
+        OnnxVocoder instance
+    """
+    return OnnxVocoder(onnx_model_path)
 
 
 def rms_norm(prompt_wav: torch.Tensor, target_rms: float):
@@ -108,3 +103,108 @@ def rms_norm(prompt_wav: torch.Tensor, target_rms: float):
         prompt_wav = prompt_wav * target_rms / prompt_rms
     return prompt_wav, prompt_rms
 
+
+class OnnxVocoder:
+    """
+    ONNX-compatible Vocos vocoder wrapper.
+    
+    The ONNX model outputs magnitude, cos(phase), and sin(phase) instead of audio
+    (since ONNX doesn't support complex numbers). This class reconstructs the audio
+    by converting to complex spectrogram and applying ISTFT.
+    
+    Args:
+        onnx_model_path: Path to the ONNX vocoder model file
+        n_fft: FFT window size (default: 1024)
+        hop_length: Hop length for STFT (default: 256)
+        sampling_rate: Audio sampling rate (default: 24000)
+        num_thread: Number of threads for ONNX inference (default: 1)
+    """
+    
+    def __init__(
+        self,
+        onnx_model_path: str,
+        n_fft: int = 1024,
+        hop_length: int = 256,
+        sampling_rate: int = 24000,
+        num_thread: int = 1,
+    ):
+        self.n_fft = n_fft
+        self.hop_length = hop_length
+        self.sampling_rate = sampling_rate
+        self.win_length = n_fft
+        
+        # Initialize ONNX runtime session
+        session_opts = ort.SessionOptions()
+        session_opts.inter_op_num_threads = num_thread
+        session_opts.intra_op_num_threads = num_thread
+        
+        self.session = ort.InferenceSession(
+            onnx_model_path,
+            sess_options=session_opts,
+            providers=["CPUExecutionProvider"],
+        )
+        
+        # Get input name from ONNX model
+        self.input_name = self.session.get_inputs()[0].name
+        
+        # Pre-compute window for ISTFT
+        self.window = torch.hann_window(self.win_length)
+    
+    def decode(self, mel: torch.Tensor) -> torch.Tensor:
+        """
+        Decode mel spectrogram to audio waveform.
+        
+        Args:
+            mel: Mel spectrogram tensor with shape (B, n_mels, T) where
+                 B is batch size, n_mels is number of mel bins (100), T is time frames.
+        
+        Returns:
+            Audio waveform tensor with shape (B, 1, T_audio) where T_audio is the
+            reconstructed audio length.
+        """
+        # Ensure mel is in the correct format: (B, n_mels, T)
+        if mel.dim() == 2:
+            mel = mel.unsqueeze(0)  # Add batch dimension
+        
+        # Convert to numpy for ONNX inference
+        mel_np = mel.float().numpy()
+        
+        # Run ONNX inference
+        outputs = self.session.run(
+            None,
+            {self.input_name: mel_np}
+        )
+        
+        # Extract outputs: mag, cos_phase, sin_phase
+        mag, cos_phase, sin_phase = outputs
+        
+        # Convert to torch tensors
+        mag = torch.from_numpy(mag)
+        cos_phase = torch.from_numpy(cos_phase)
+        sin_phase = torch.from_numpy(sin_phase)
+        
+        # Reconstruct complex spectrogram: S = mag * (cos + i*sin)
+        # ONNX outputs are in shape (B, n_bins, T), where n_bins = n_fft // 2 + 1
+        complex_spec = mag * (cos_phase + 1j * sin_phase)
+        
+        # Apply ISTFT to reconstruct audio
+        # complex_spec shape: (B, n_bins, T)
+        # Output shape: (B, T_audio)
+        audio = torch.istft(
+            complex_spec,
+            n_fft=self.n_fft,
+            hop_length=self.hop_length,
+            win_length=self.win_length,
+            window=self.window,
+            center=True,
+        )
+        
+        # Add channel dimension: (B, T_audio) -> (B, 1, T_audio)
+        audio = audio.unsqueeze(1)
+        
+        return audio
+    
+    def eval(self):
+        """Set to evaluation mode (for compatibility with nn.Module interface)."""
+        pass
+    
