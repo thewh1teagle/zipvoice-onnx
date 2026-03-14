@@ -1,10 +1,8 @@
-from typing import Optional
-
+import librosa
 import numpy as np
-import torch
-import torchaudio
-from torch import nn
-from vocos import Vocos
+import onnxruntime as ort
+
+from .model import get_ort_session_options
 
 
 class VocosFbank:
@@ -23,88 +21,75 @@ class VocosFbank:
         self.n_fft = n_fft
         self.hop_length = hop_length
         self.num_channels = num_channels
-        
-        # Use torchaudio transforms to match training setup
-        self.fbank = torchaudio.transforms.MelSpectrogram(
-            sample_rate=sampling_rate,
-            n_fft=n_fft,
-            hop_length=hop_length,
-            n_mels=n_mels,
-            center=True,
-            power=1,
-        )
 
-    def extract(
-        self,
-        samples: torch.Tensor,
-        sampling_rate: int,
-    ) -> torch.Tensor:
+        self.mel_filters = librosa.filters.mel(
+            sr=sampling_rate,
+            n_fft=n_fft,
+            n_mels=n_mels,
+            norm=None,
+            htk=True,
+        ).astype(np.float32)  # (n_mels, n_fft//2+1)
+
+    def extract(self, samples: np.ndarray, sampling_rate: int) -> np.ndarray:
         """
         Extract mel spectrogram features from audio samples.
 
         Args:
-            samples: PyTorch tensor with shape (C, T) where C is channels, T is time.
+            samples: numpy array with shape (C, T)
             sampling_rate: Sampling rate of the audio.
 
         Returns:
-            PyTorch tensor with shape (T, n_mels) containing log mel spectrogram features.
+            numpy array with shape (T, n_mels)
         """
-        # Check for sampling rate compatibility
-        assert sampling_rate == self.sampling_rate, (
-            f"Mismatched sampling rate: extractor expects {self.sampling_rate}, "
-            f"got {sampling_rate}"
-        )
-        
-        # Ensure samples have the right shape: (C, T)
-        if len(samples.shape) == 1:
-            samples = samples.unsqueeze(0)
-        
-        # Handle multi-channel audio
+        assert sampling_rate == self.sampling_rate
+
+        if samples.ndim == 1:
+            samples = samples[np.newaxis]
+
         if self.num_channels == 1:
             if samples.shape[0] == 2:
-                samples = samples.mean(dim=0, keepdims=True)
+                samples = samples.mean(axis=0, keepdims=True)
         else:
             assert samples.shape[0] == 2, samples.shape
 
-        # Compute mel spectrogram using torchaudio
-        mel = self.fbank(samples)  # (1, n_mels, T) or (2, n_mels, T)
-        logmel = mel.clamp(min=1e-7).log()
+        mels = []
+        for ch in samples:
+            stft = librosa.stft(ch, n_fft=self.n_fft, hop_length=self.hop_length, center=True, window="hann")
+            mel = self.mel_filters @ np.abs(stft)  # (n_mels, T)
+            mels.append(mel)
+        mel = np.stack(mels, axis=0)  # (C, n_mels, T)
 
-        # Reshape to (T, n_mels) or (T, 2 * n_mels)
-        logmel = logmel.reshape(-1, logmel.shape[-1]).t()  # (time, n_mels) or (time, 2 * n_mels)
+        logmel = np.log(np.clip(mel, a_min=1e-7, a_max=None))
+        logmel = logmel.reshape(-1, logmel.shape[-1]).T  # (T, n_mels)
 
-        return logmel
-
-
-def get_vocoder(vocos_local_path: Optional[str] = None):
-    if vocos_local_path:
-        vocoder = Vocos.from_hparams(f"{vocos_local_path}/config.yaml")
-        state_dict = torch.load(
-            f"{vocos_local_path}/pytorch_model.bin",
-            weights_only=True,
-            map_location="cpu",
-        )
-        vocoder.load_state_dict(state_dict)
-    else:
-        vocoder = Vocos.from_pretrained("charactr/vocos-mel-24khz")
-    return vocoder
+        return logmel.astype(np.float32)
 
 
-def rms_norm(prompt_wav: torch.Tensor, target_rms: float):
-    """
-    Normalize the rms of prompt_wav is it is smaller than target rms.
+class OnnxVocoder:
+    def __init__(self, model_path: str, num_thread: int = 1, onnx_providers: list = ["CPUExecutionProvider"]):
+        sess_opts = get_ort_session_options(num_thread)
+        self.session = ort.InferenceSession(model_path, sess_options=sess_opts, providers=onnx_providers)
 
-    Parameters:
-        prompt_wav: PyTorch tensor with shape (C, T).
-        target_rms: target rms value
+        meta = self.session.get_modelmeta().custom_metadata_map
+        self.n_fft = int(meta.get("n_fft", 1024))
+        self.hop_length = int(meta.get("hop_length", 256))
+        self.win_length = int(meta.get("win_length", 1024))
 
-    Returns:
-        prompt_wav: normalized prompt wav with shape (C, T).
-        promt_rms: rms of original prompt wav. Will be used to
-            re-normalize the generated wav.
-    """
-    prompt_rms = torch.sqrt(torch.mean(torch.square(prompt_wav)))
-    if prompt_rms < target_rms:
-        prompt_wav = prompt_wav * target_rms / prompt_rms
-    return prompt_wav, prompt_rms
+    def decode(self, mel: np.ndarray) -> np.ndarray:
+        """
+        Args:
+            mel: (1, n_mels, T)
+        Returns:
+            (1, T_audio)
+        """
+        mag, x, y = self.session.run(None, {self.session.get_inputs()[0].name: mel})
+        complex_spec = mag[0] * (x[0] + 1j * y[0])  # (n_fft//2+1, T)
+        wav = librosa.istft(complex_spec, hop_length=self.hop_length, win_length=self.win_length, window="hann", center=True)
+        return wav[np.newaxis].astype(np.float32)  # (1, T_audio)
 
+
+def rms_norm(audio: np.ndarray, target_rms: float):
+    rms = np.sqrt(np.mean(audio ** 2))
+    if rms < target_rms:
+        audio = audio * target_rms / rms
+    return audio, float(rms)

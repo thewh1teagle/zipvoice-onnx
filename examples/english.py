@@ -18,6 +18,8 @@ wget https://huggingface.co/k2-fsa/ZipVoice/resolve/main/zipvoice_distill/model.
 wget https://huggingface.co/k2-fsa/ZipVoice/resolve/main/zipvoice_distill/tokens.txt -O ./model_distilled/tokens.txt
 
 
+wget https://github.com/thewh1teagle/zipvoice-onnx/releases/download/model-files-v1.0/vocos_24khz.onnx
+
 wget https://github.com/thewh1teagle/zipvoice-onnx/releases/download/model-files-v1.0/prompt_english_female1.wav
 
 uv run examples/english.py
@@ -34,6 +36,7 @@ options = ZipVoiceOptions(
     fm_decoder_int8_path="./model/fm_decoder_int8.onnx",
     model_json_path="./model/model.json",
     tokens_path="./model/tokens.txt",
+    vocoder_path="./vocos_24khz.onnx",
 )
 
 zipvoice = ZipVoice(options)

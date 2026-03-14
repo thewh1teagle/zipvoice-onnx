@@ -1,6 +1,9 @@
 import logging
 from typing import List
 
+# Punctuation set for chunking
+_punctuation = {";", ":", ",", ".", "!", "?", "；", "：", "，", "。", "！", "？"}
+
 
 class Tokenizer:
     """Simple tokenizer that reads token mappings from a file and converts text to tokens."""
@@ -21,27 +24,9 @@ class Tokenizer:
         self.vocab_size = len(self.token2id)
 
     def texts_to_tokens(self, texts: List[str]) -> List[List[str]]:
-        """
-        Convert text strings to lists of character tokens.
-        
-        Args:
-            texts: List of text strings to tokenize.
-            
-        Returns:
-            List of lists of token strings (each character becomes a token).
-        """
         return [list(text.strip()) for text in texts]
 
     def tokens_to_token_ids(self, tokens_list: List[List[str]]) -> List[List[int]]:
-        """
-        Convert token lists to token ID lists.
-        
-        Args:
-            tokens_list: List of lists of token strings.
-            
-        Returns:
-            List of lists of token IDs.
-        """
         token_ids_list = []
         for tokens in tokens_list:
             token_ids = []
@@ -53,3 +38,35 @@ class Tokenizer:
             token_ids_list.append(token_ids)
         return token_ids_list
 
+
+def chunk_tokens_punctuation(tokens_list: List[str], max_tokens: int = 100) -> List[List[str]]:
+    """Split tokens into chunks at punctuation boundaries, each at most max_tokens long."""
+    # Split into sentences at punctuation; trailing punctuation/spaces attach to previous sentence
+    sentences: List[List[str]] = []
+    current: List[str] = []
+    for token in tokens_list:
+        is_trailing = token in _punctuation or token == " "
+        if not current and sentences and is_trailing:
+            sentences[-1].append(token)
+        else:
+            current.append(token)
+            if token in _punctuation:
+                sentences.append(current)
+                current = []
+    if current:
+        sentences.append(current)
+
+    # Merge sentences into chunks up to max_tokens
+    chunks: List[List[str]] = []
+    current = []
+    for sentence in sentences:
+        if len(current) + len(sentence) <= max_tokens:
+            current.extend(sentence)
+        else:
+            if current:
+                chunks.append(current)
+            current = sentence
+    if current:
+        chunks.append(current)
+
+    return chunks
