@@ -18,7 +18,6 @@ dependencies = [
     "vocos>=0.1.0",
     "torch>=2.0.0",
     "torchaudio>=2.0.0",
-    "torchcodec>=0.9.1",
 ]
 
 [build-system]

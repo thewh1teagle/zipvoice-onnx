@@ -1,5 +1,7 @@
 import torch
 import torchaudio
+import soundfile as sf
+import numpy as np
 from typing import List
 
 # Punctuation set for chunking
@@ -18,7 +20,8 @@ def load_prompt_wav(prompt_wav: str, sampling_rate: int):
         Loaded prompt waveform with target sampling rate,
         PyTorch tensor of shape (C, T)
     """
-    prompt_wav, prompt_sampling_rate = torchaudio.load(prompt_wav)
+    audio, prompt_sampling_rate = sf.read(prompt_wav, always_2d=True)
+    prompt_wav = torch.from_numpy(audio.T).float()  # (C, T)
 
     if prompt_sampling_rate != sampling_rate:
         resampler = torchaudio.transforms.Resample(
