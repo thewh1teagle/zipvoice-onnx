@@ -21,3 +21,6 @@ audio.wav
 model_distilled/
 model_vocos/
 *.onnx
+model-he/
+model-en-distilled/
+*.tar.gz
