@@ -5,7 +5,6 @@ import json
 import logging
 import numpy as np
 import torch
-from lhotse.utils import fix_random_seed
 from typing import List
 from dataclasses import field
 
@@ -52,7 +51,10 @@ class ZipVoice:
         # Set up threading
         torch.set_num_threads(num_thread)
         torch.set_num_interop_threads(num_thread)
-        fix_random_seed(seed)
+        import random
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
         
         # Initialize tokenizer
         if tokens_path:
