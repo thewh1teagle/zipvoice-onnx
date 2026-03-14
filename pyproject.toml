@@ -13,7 +13,6 @@ dependencies = [
     "numpy>=2.3.4",
     "onnxruntime>=1.23.2",
     "pydub>=0.25.0",
-    "pyyaml>=6.0.3",
     "soundfile>=0.13.1",
     "vocos>=0.1.0",
     "torch>=2.0.0",
