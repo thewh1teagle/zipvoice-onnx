@@ -42,6 +42,7 @@ options = ZipVoiceOptions(
     fm_decoder_int8_path="./model/fm_decoder_int8.onnx",
     model_json_path="./model/model.json",
     tokens_path="./model/tokens.txt",
+    vocoder_path="./vocos_24khz.onnx",
 )
 
 zipvoice = ZipVoice(options)
