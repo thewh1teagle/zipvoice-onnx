@@ -8,13 +8,10 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "librosa>=0.10.0",
     "numpy>=2.3.4",
     "onnxruntime>=1.23.2",
-    "pydub>=0.25.0",
     "soundfile>=0.13.1",
-    "vocos>=0.1.0",
-    "torch>=2.0.0",
-    "torchaudio>=2.0.0",
 ]
 
 [build-system]

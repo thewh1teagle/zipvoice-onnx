@@ -18,6 +18,7 @@ wget https://huggingface.co/k2-fsa/ZipVoice/resolve/main/zipvoice_distill/model.
 wget https://huggingface.co/k2-fsa/ZipVoice/resolve/main/zipvoice_distill/tokens.txt -O ./model_distilled/tokens.txt
 
 
+wget https://github.com/thewh1teagle/zipvoice-onnx/releases/download/model-files-v1.0/vocos_24khz.onnx
 wget https://github.com/thewh1teagle/zipvoice-onnx/releases/download/model-files-v1.0/prompt_english_female2.wav
 
 uv pip install phonemizer-fork espeakng-loader
