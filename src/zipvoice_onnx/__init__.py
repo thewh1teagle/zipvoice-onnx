@@ -33,7 +33,7 @@ class ZipVoiceOptions:
 
 
 class ZipVoice:
-    def __init__(self, options: ZipVoiceOptions, num_thread: int = 1, seed: int = 666):
+    def __init__(self, options: ZipVoiceOptions, num_thread: int = 4, seed: int = 666):
         self.options = options
         self.num_thread = num_thread
         self.seed = seed
@@ -126,7 +126,7 @@ class ZipVoice:
             Tuple of (audio_samples, sampling_rate) where audio_samples is a numpy array
         """
         if num_steps is None:
-            num_steps = 16
+            num_steps = 8
         
         # Load and process prompt wav
         prompt_wav = load_prompt_wav(ref_wav, sampling_rate=self.sampling_rate)
